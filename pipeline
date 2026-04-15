@@ -1,0 +1,74 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_IMAGE = "yuva2109/java-app:latest"
+    }
+
+    stages {
+
+        stage('Clone Repository') {
+            steps {
+                git branch: 'main',
+                url: 'https://github.com/yuvarajsaravanan21/pra.git'
+            }
+        }
+
+        stage('Build with Maven') {
+            steps {
+                bat 'mvn clean package'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                bat "docker build -t %DOCKER_IMAGE% ."
+            }
+        }
+
+        stage('Push to DockerHub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhun-cred',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    bat '''
+                    echo %DOCKER_PASS% | docker login -u %DOCKER_USER% --password-stdin
+                    docker push %DOCKER_IMAGE%
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy to Kubernetes') {
+            steps {
+                withCredentials([file(credentialsId: 'kuberconfig', variable: 'KUBECONFIG_FILE')]) {
+                    bat '''
+                    set KUBECONFIG=%KUBECONFIG_FILE%
+
+                    echo ===== Checking cluster =====
+                    kubectl get nodes
+
+                    echo ===== Deploying application =====
+                    kubectl apply -f deployment.yaml
+                    kubectl apply -f service.yaml
+
+                    echo ===== Deployment completed =====
+                    kubectl get pods
+                    kubectl get svc
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo '✅ CI/CD Pipeline executed successfully!'
+        }
+        failure {
+            echo '❌ Pipeline failed. Check logs for errors.'
+        }
+    }
+}
